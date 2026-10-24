@@ -21,9 +21,16 @@ States:
                  finishes (or keeps) the set speed at the minimum and does not raise it back while the
                  lead is still ahead. A lower set speed never fights stock braking, so stock
                  longitudinal handles the approach and stop.
+  resuming     - the car came to a stop while holding. Once it is moving again, the target becomes the
+                 known speed limit (dashboard or map, from the speed limit resolver, including the
+                 driver's offset) so ICBM walks the set speed back up to it. With no known speed limit
+                 the set speed stays at the minimum. This state survives the lead driving away.
+                 The walk up waits until the car moves because ICBM raises the set speed with RES/+,
+                 which on many stock systems (HKG included) also resumes from a standstill hold.
 
-The intercept fully releases (back to idle, so ICBM returns to the driver's set speed) once the
-lead drives away, the lead is lost, or the driver disengages / raises the set speed.
+Before the car stops, the intercept fully releases (back to idle, so ICBM returns to the driver's set
+speed) once the lead drives away or is lost. In any state, disengaging or the driver raising the set
+speed fully releases.
 """
 import math
 
@@ -54,12 +61,14 @@ A_COMFORT = 0.8                      # m/s^2, braking curve used to plan the set
 MAX_TARGET_RAMP = 1.5                # m/s^2, max rate the target itself may descend per second
 SPEED_MARGIN = 2. * CV.MPH_TO_MS     # only intercept when ego and set speed are this far above the minimum
 AT_MIN_MARGIN = 1. * CV.MPH_TO_MS    # stock set speed within this of the minimum counts as "at the minimum"
+RESUME_MIN_SPEED = 2.                # m/s, after a stop, only walk the set speed up once moving faster than this
 
 
 class VisionLeadState:
   idle = 0
   intercepting = 1
   holding = 2
+  resuming = 3
 
 
 class VisionLeadIntercept:
@@ -78,6 +87,7 @@ class VisionLeadIntercept:
     self.lead_lost_timer = 0.
     self.cancelled = False  # driver raised the set speed: ignore this lead until it is gone
     self.v_cruise_prev = 0.
+    self.resume_speed_limit = 0.  # last known speed limit seen while resuming, so a dropout does not lower the target
 
     self.v_target = V_CRUISE_UNSET
     self.output_v_target = V_CRUISE_UNSET
@@ -100,8 +110,17 @@ class VisionLeadIntercept:
   def _reset(self) -> None:
     self.state = VisionLeadState.idle
     self.v_target = V_CRUISE_UNSET
+    self.resume_speed_limit = 0.
 
-  def update(self, sm: messaging.SubMaster, long_enabled: bool, long_override: bool, v_ego: float, v_cruise: float) -> None:
+  def _start_intercept(self, v_ego: float, v_cruise: float, v_cruise_stock: float) -> None:
+    self.state = VisionLeadState.intercepting
+    self.resume_speed_limit = 0.
+    # Start the descent from where the car is now, never above the current set speeds
+    self.v_target = min(v_ego, v_cruise, v_cruise_stock)
+
+  def update(self, sm: messaging.SubMaster, long_enabled: bool, long_override: bool, v_ego: float, v_cruise: float,
+             speed_limit: float) -> None:
+    """speed_limit: resolved speed limit in m/s including the driver's offset, 0 when none is known."""
     self.frame += 1
     if self.frame % int(PARAMS_UPDATE_PERIOD / DT_MDL) == 0:
       self._read_params()
@@ -129,15 +148,30 @@ class VisionLeadIntercept:
       self.cancelled = True
     self.v_cruise_prev = v_cruise
 
-    if not (self.enabled and self.available and long_enabled) or self.cancelled or lead_gone:
+    # A new slow lead far ahead worth intercepting (from idle, or while resuming after a stop)
+    can_intercept = (self.lead_valid_timer >= LEAD_DEBOUNCE_TIME and not long_override and
+                     v_ego > min_set_speed + SPEED_MARGIN and v_cruise_stock > min_set_speed + SPEED_MARGIN)
+
+    if not (self.enabled and self.available and long_enabled) or self.cancelled:
+      self._reset()
+
+    elif lead_gone and self.state in (VisionLeadState.intercepting, VisionLeadState.holding):
+      # Lead left before we stopped behind it: hand the set speed back to the driver
       self._reset()
 
     elif self.state == VisionLeadState.idle:
-      if (self.lead_valid_timer >= LEAD_DEBOUNCE_TIME and not long_override and
-          v_ego > min_set_speed + SPEED_MARGIN and v_cruise_stock > min_set_speed + SPEED_MARGIN):
-        self.state = VisionLeadState.intercepting
-        # Start the descent from where the car is now, never above the current set speeds
-        self.v_target = min(v_ego, v_cruise, v_cruise_stock)
+      if can_intercept:
+        self._start_intercept(v_ego, v_cruise, v_cruise_stock)
+
+    elif self.state == VisionLeadState.holding:
+      self.v_target = min_set_speed
+      if sm['carState'].standstill:
+        # Stopped behind the lead: from here on target the known speed limit, or stay at the minimum
+        self.state = VisionLeadState.resuming
+
+    elif self.state == VisionLeadState.resuming:
+      if can_intercept:
+        self._start_intercept(v_ego, v_cruise, v_cruise_stock)
 
     elif self.state == VisionLeadState.intercepting:
       if v_cruise_stock <= min_set_speed + AT_MIN_MARGIN or (lead_present and lead_d <= STOCK_TRACKING_DIST):
@@ -151,6 +185,17 @@ class VisionLeadIntercept:
         v_desired = max(min(v_curve, v_cruise), min_set_speed)
         # Descend smoothly and never step back up, so the set speed does not bounce
         self.v_target = min(self.v_target, max(v_desired, self.v_target - MAX_TARGET_RAMP * DT_MDL))
+
+    if self.state == VisionLeadState.resuming:
+      if speed_limit > 0.:
+        self.resume_speed_limit = speed_limit
+      if sm['carState'].standstill or v_ego < RESUME_MIN_SPEED:
+        # Still stopped: hold the minimum so ICBM sends no RES/+ presses that could resume the car
+        self.v_target = min_set_speed
+      else:
+        # Never below the minimum the stock system accepts. The planner's min() with the driver's own
+        # set speed still caps this, so we never go above what the driver set.
+        self.v_target = max(self.resume_speed_limit, min_set_speed)
 
     self.output_v_target = self.v_target if self.is_active else V_CRUISE_UNSET
     self.output_a_target = -A_COMFORT if self.state == VisionLeadState.intercepting else 0.
