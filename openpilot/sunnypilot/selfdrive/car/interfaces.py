@@ -78,6 +78,7 @@ def _cleanup_unsupported_params(CP: structs.CarParams, CP_SP: structs.CarParamsS
   if not CP_SP.intelligentCruiseButtonManagementAvailable or CP.openpilotLongitudinalControl:
     cloudlog.warning("ICBM not available or openpilot Longitudinal Control enabled, cleaning up params")
     params.remove("IntelligentCruiseButtonManagement")
+    params.remove("IcbmVisionLeadIntercept")
 
   if not CP.openpilotLongitudinalControl and CP_SP.pcmCruiseSpeed:
     cloudlog.warning("openpilot Longitudinal Control and ICBM not available, cleaning up params")

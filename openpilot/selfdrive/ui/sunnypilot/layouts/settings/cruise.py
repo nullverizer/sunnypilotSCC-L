@@ -47,6 +47,13 @@ class CruiseLayout(Widget):
       description="",
       param="IntelligentCruiseButtonManagement")
 
+    self.icbm_vli_toggle = toggle_item_sp(
+      title=tr("ICBM: Slow Down for Stopped Vision Leads (Alpha)"),
+      description=tr("When a slow or stopped vehicle is detected far ahead, ICBM lowers the stock set speed to its " +
+                     "minimum so the stock cruise control can see the vehicle and stop smoothly. " +
+                     "Requires Intelligent Cruise Button Management."),
+      param="IcbmVisionLeadIntercept")
+
     self.scc_v_toggle = toggle_item_sp(
       title=tr("Smart Cruise Control - Vision"),
       description=tr("Use vision path predictions to estimate the appropriate speed to drive through turns ahead."),
@@ -84,6 +91,7 @@ class CruiseLayout(Widget):
 
     items = [
       self.icbm_toggle,
+      self.icbm_vli_toggle,
       self.scc_v_toggle,
       self.scc_m_toggle,
       self.custom_acc_toggle,
@@ -136,6 +144,10 @@ class CruiseLayout(Widget):
           self.icbm_toggle.set_description(new_desc)
           self.icbm_toggle.show_description(True)
 
+      self.icbm_vli_toggle.action_item.set_enabled(has_icbm)
+      if not has_icbm:
+        ui_state.params.remove("IcbmVisionLeadIntercept")
+
       if has_long or has_icbm:
         self.custom_acc_toggle.action_item.set_enabled(((has_long and not ui_state.CP.pcmCruise) or has_icbm) and ui_state.is_offroad())
         self.scc_v_toggle.action_item.set_enabled(True)
@@ -152,6 +164,7 @@ class CruiseLayout(Widget):
       has_icbm = has_long = False
       self.icbm_toggle.action_item.set_enabled(False)
       self.icbm_toggle.set_description(tr(ONROAD_ONLY_DESCRIPTION))
+      self.icbm_vli_toggle.action_item.set_enabled(False)
 
     show_custom_acc_desc = False
 

@@ -306,6 +306,7 @@ struct LongitudinalPlanSP @0xf35cc4560bbf6ec2 {
     sccVision @1;
     sccMap @2;
     speedLimitAssist @3;
+    visionLeadIntercept @4;
   }
 
   struct E2eAlerts {
