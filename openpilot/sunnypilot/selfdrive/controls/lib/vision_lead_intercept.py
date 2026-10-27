@@ -21,13 +21,11 @@ States:
                  finishes (or keeps) the set speed at the minimum and does not raise it back while the
                  lead is still ahead. A lower set speed never fights stock braking, so stock
                  longitudinal handles the approach and stop.
-  resuming     - the car came to a stop (carState.standstill, the same signal as the standstill timer)
-                 while holding. The target stays at the minimum while stopped; once the car is moving
-                 again the intercept fully releases. ICBM then walks the set speed back up to the
-                 driver's last set speed, or to the speed limit when Speed Limit Assist is on, since
-                 both already feed the planner's target.
-                 The walk up waits until the car moves because ICBM raises the set speed with RES/+,
-                 which on many stock systems (HKG included) also resumes from a standstill hold.
+
+Once the car comes to a stop while holding (carState.standstill, the same signal as the standstill
+timer), the intercept fully releases back to idle. The stock system is holding the stop, so ICBM then
+walks the set speed back up to the driver's last set speed, or to the speed limit when Speed Limit
+Assist is on, since both already feed the planner's target.
 
 Before the car stops, the intercept also fully releases once the lead drives away or is lost.
 In any state, disengaging or the driver pressing RES/+ fully releases.
@@ -65,14 +63,12 @@ A_COMFORT = 0.8                      # m/s^2, braking curve used to plan the set
 MAX_TARGET_RAMP = 1.5                # m/s^2, max rate the target itself may descend per second
 SPEED_MARGIN = 2. * CV.MPH_TO_MS     # only intercept when ego and set speed are this far above the minimum
 AT_MIN_MARGIN = 1. * CV.MPH_TO_MS    # stock set speed within this of the minimum counts as "at the minimum"
-RESUME_MIN_SPEED = 2.                # m/s, after a stop, only release (and walk the set speed up) once moving faster than this
 
 
 class VisionLeadState:
   idle = 0
   intercepting = 1
   holding = 2
-  resuming = 3
 
 
 class VisionLeadIntercept:
@@ -146,7 +142,7 @@ class VisionLeadIntercept:
     if self.is_active and any(b.type in RAISE_BUTTONS and b.pressed for b in sm['carState'].buttonEvents):
       self.cancelled = True
 
-    # A new slow lead far ahead worth intercepting (from idle, or while resuming after a stop)
+    # A new slow lead far ahead worth intercepting
     can_intercept = (self.lead_valid_timer >= LEAD_DEBOUNCE_TIME and not long_override and
                      v_ego > min_set_speed + SPEED_MARGIN and v_cruise_stock > min_set_speed + SPEED_MARGIN)
 
@@ -164,15 +160,8 @@ class VisionLeadIntercept:
     elif self.state == VisionLeadState.holding:
       self.v_target = min_set_speed
       if sm['carState'].standstill:
-        # Stopped behind the lead (same standstill signal as the standstill timer)
-        self.state = VisionLeadState.resuming
-
-    elif self.state == VisionLeadState.resuming:
-      if sm['carState'].standstill or v_ego < RESUME_MIN_SPEED:
-        # Still stopped: hold the minimum so ICBM sends no RES/+ presses that could resume the car
-        self.v_target = min_set_speed
-      else:
-        # Moving again: release, so ICBM walks back up to the driver's set speed (or the speed limit with SLA on)
+        # Stopped behind the lead (same standstill signal as the standstill timer) and stock is holding the stop:
+        # release, so ICBM walks back up to the driver's set speed (or the speed limit with SLA on)
         self._reset()
 
     elif self.state == VisionLeadState.intercepting:

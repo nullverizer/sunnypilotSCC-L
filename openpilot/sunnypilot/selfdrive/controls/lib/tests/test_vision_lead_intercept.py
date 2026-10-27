@@ -45,8 +45,7 @@ class TestVisionLeadIntercept:
     self.step(20, lead_d=120.)
     self.step(lead_d=80., v_cruise_stock=MIN_SET)
     assert self.vli.state == VisionLeadState.holding
-    self.step(10, lead_d=10., v_ego=0., v_cruise_stock=MIN_SET, standstill=True)
-    assert self.vli.state == VisionLeadState.resuming
+    self.step(lead_d=10., v_ego=0., v_cruise_stock=MIN_SET, standstill=True)
 
   def test_idle_without_lead(self):
     self.step(40)
@@ -137,22 +136,13 @@ class TestVisionLeadIntercept:
     self.step(lead_d=110., long_enabled=False)
     assert not self.vli.is_active
 
-  def test_after_stop_holds_min_until_moving_then_releases(self):
+  def test_releases_once_stopped(self):
     self.stop_behind_lead()
-    # Still stopped, even after the lead pulls away: hold the minimum so ICBM does not press RES/+
-    self.step(20, lead_d=10., v_ego=0., v_cruise_stock=MIN_SET, standstill=True)
-    self.step(20, lead_d=30., lead_v=12., v_ego=0.5, v_cruise_stock=MIN_SET)
-    assert self.vli.state == VisionLeadState.resuming
-    assert abs(self.vli.output_v_target - MIN_SET) < 1e-3
-
-    # Moving again: release so ICBM returns to the driver's set speed (or SLA's speed limit)
-    self.step(lead_d=30., lead_v=5., v_ego=3., v_cruise_stock=MIN_SET)
+    # Stock is holding the stop: release right away so ICBM returns to the driver's set speed (or SLA's limit)
     assert self.vli.state == VisionLeadState.idle
     assert self.vli.output_v_target == V_CRUISE_UNSET
-
-  def test_after_stop_res_press_releases(self):
-    self.stop_behind_lead()
-    self.step(lead_d=10., v_ego=0., v_cruise_stock=MIN_SET, standstill=True, buttons=RES_PRESS)
+    # And it does not re-intercept the stopped lead while standing still
+    self.step(40, lead_d=60., v_ego=0., v_cruise_stock=MIN_SET, standstill=True)
     assert not self.vli.is_active
 
   def test_after_release_new_slow_lead_intercepts_again(self):
