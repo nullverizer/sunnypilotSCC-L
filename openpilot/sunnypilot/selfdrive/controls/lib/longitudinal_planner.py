@@ -55,8 +55,7 @@ class LongitudinalPlannerSP:
                     self.resolver.speed_limit_final_last, has_speed_limit, self.resolver.distance, self.events_sp)
 
     # Vision Lead Intercept (ICBM + stock longitudinal only): walks the stock set speed down for slow vision leads
-    vli_speed_limit = self.resolver.speed_limit_final if self.resolver.speed_limit_valid else 0.
-    self.vli.update(sm, long_enabled, long_override, v_ego, v_cruise, vli_speed_limit)
+    self.vli.update(sm, long_enabled, long_override, v_ego, v_cruise)
 
     targets = {
       LongitudinalPlanSource.cruise: (v_cruise, a_ego),
