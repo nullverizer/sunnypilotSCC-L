@@ -44,6 +44,19 @@ sections:
         type: capability
         field: has_longitudinal_control
         equals: true
+  - key: IcbmVisionLeadIntercept
+    widget: toggle
+    title: 'ICBM: Slow Down for Stopped Vision Leads (Alpha)'
+    description: When a slow or stopped vehicle is detected far ahead, ICBM lowers the stock set speed to its minimum
+      so the stock cruise control can see the vehicle and stop smoothly. Requires Intelligent Cruise Button Management.
+    visibility:
+    - type: capability
+      field: icbm_available
+      equals: true
+    enablement:
+    - type: capability
+      field: has_icbm
+      equals: true
 - id: custom_acc_increments
   title: Custom ACC Speed Intervals
   description: ''
