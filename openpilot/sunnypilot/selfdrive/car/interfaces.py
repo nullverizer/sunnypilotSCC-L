@@ -12,6 +12,7 @@ from openpilot.common.params import Params
 from openpilot.common.swaglog import cloudlog
 from openpilot.sunnypilot.selfdrive.controls.lib.nnlc.helpers import get_nn_model_path
 from openpilot.sunnypilot.selfdrive.controls.lib.speed_limit.helpers import set_speed_limit_assist_availability
+from openpilot.sunnypilot.selfdrive.controls.lib.vision_lead_intercept import is_hkg_hda2
 
 from openpilot.sunnypilot.sunnylink.statsd import STATSLOGSP
 
@@ -78,6 +79,9 @@ def _cleanup_unsupported_params(CP: structs.CarParams, CP_SP: structs.CarParamsS
   if not CP_SP.intelligentCruiseButtonManagementAvailable or CP.openpilotLongitudinalControl:
     cloudlog.warning("ICBM not available or openpilot Longitudinal Control enabled, cleaning up params")
     params.remove("IntelligentCruiseButtonManagement")
+    params.remove("IcbmVisionLeadIntercept")
+
+  if not is_hkg_hda2(CP):
     params.remove("IcbmVisionLeadIntercept")
 
   if not CP.openpilotLongitudinalControl and CP_SP.pcmCruiseSpeed:

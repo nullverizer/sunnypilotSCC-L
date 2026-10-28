@@ -6,6 +6,8 @@ See the LICENSE.md file in the root directory for more details.
 """
 from types import SimpleNamespace
 
+from opendbc.car.hyundai.values import HyundaiFlags
+
 from openpilot.common.constants import CV
 from openpilot.common.realtime import DT_MDL
 from openpilot.selfdrive.car.cruise import V_CRUISE_UNSET
@@ -30,7 +32,7 @@ def make_sm(lead_d=None, lead_v=0., prob=0.9, v_cruise_stock=V_SET, standstill=F
 
 class TestVisionLeadIntercept:
   def setup_method(self):
-    CP = SimpleNamespace(openpilotLongitudinalControl=False)
+    CP = SimpleNamespace(openpilotLongitudinalControl=False, brand="hyundai", flags=int(HyundaiFlags.CANFD_LKA_STEER_MSG))  # HDA2
     CP_SP = SimpleNamespace(pcmCruiseSpeed=False)  # ICBM active
     self.vli = VisionLeadIntercept(CP, CP_SP)
     self.vli._read_params = lambda: None
@@ -59,6 +61,16 @@ class TestVisionLeadIntercept:
 
     self.vli.enabled = True
     self.vli.CP.openpilotLongitudinalControl = True
+    self.step(40, lead_d=100.)
+    assert not self.vli.is_active
+
+  def test_hkg_hda2_only(self):
+    self.vli.CP.flags = 0  # HKG HDA1 / CAN
+    self.step(40, lead_d=100.)
+    assert not self.vli.is_active
+
+    self.vli.CP.flags = int(HyundaiFlags.CANFD_LKA_STEER_MSG)
+    self.vli.CP.brand = "toyota"
     self.step(40, lead_d=100.)
     assert not self.vli.is_active
 

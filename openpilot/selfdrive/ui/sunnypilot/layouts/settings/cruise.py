@@ -8,6 +8,7 @@ from enum import IntEnum
 
 from openpilot.selfdrive.ui.sunnypilot.layouts.settings.cruise_sub_layouts.speed_limit_settings import SpeedLimitSettingsLayout
 from openpilot.selfdrive.ui.ui_state import ui_state
+from openpilot.sunnypilot.selfdrive.controls.lib.vision_lead_intercept import is_hkg_hda2
 from openpilot.system.ui.lib.multilang import tr, tr_noop
 from openpilot.system.ui.sunnypilot.widgets.list_view import toggle_item_sp, option_item_sp, simple_button_item_sp
 from openpilot.system.ui.widgets import Widget
@@ -51,7 +52,7 @@ class CruiseLayout(Widget):
       title=tr("ICBM: Slow Down for Stopped Vision Leads (Alpha)"),
       description=tr("When a slow or stopped vehicle is detected far ahead, ICBM lowers the stock set speed to its " +
                      "minimum so the stock cruise control can see the vehicle and stop smoothly. " +
-                     "Requires Intelligent Cruise Button Management."),
+                     "Hyundai, Kia and Genesis HDA2 only. Requires Intelligent Cruise Button Management."),
       param="IcbmVisionLeadIntercept")
 
     self.scc_v_toggle = toggle_item_sp(
@@ -144,8 +145,11 @@ class CruiseLayout(Widget):
           self.icbm_toggle.set_description(new_desc)
           self.icbm_toggle.show_description(True)
 
-      self.icbm_vli_toggle.action_item.set_enabled(has_icbm)
-      if not has_icbm:
+      # Vision lead intercept: HKG HDA2 only, and needs ICBM on
+      vli_available = has_icbm and is_hkg_hda2(ui_state.CP)
+      self.icbm_vli_toggle.set_visible(is_hkg_hda2(ui_state.CP))
+      self.icbm_vli_toggle.action_item.set_enabled(vli_available)
+      if not vli_available:
         ui_state.params.remove("IcbmVisionLeadIntercept")
 
       if has_long or has_icbm:

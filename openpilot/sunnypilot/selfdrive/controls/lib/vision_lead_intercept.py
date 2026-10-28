@@ -35,6 +35,7 @@ import math
 import openpilot.cereal.messaging as messaging
 from opendbc.car import structs
 from opendbc.car.structs import car
+from opendbc.car.hyundai.values import HyundaiFlags
 from openpilot.common.constants import CV
 from openpilot.common.params import Params
 from openpilot.common.realtime import DT_MDL
@@ -65,6 +66,12 @@ SPEED_MARGIN = 2. * CV.MPH_TO_MS     # only intercept when ego and set speed are
 AT_MIN_MARGIN = 1. * CV.MPH_TO_MS    # stock set speed within this of the minimum counts as "at the minimum"
 
 
+def is_hkg_hda2(CP: structs.CarParams) -> bool:
+  # Hyundai/Kia/Genesis CAN-FD cars with HDA2 (camera sends the LKA steering message). The only platform
+  # this has been designed and tuned for, so the feature is limited to it.
+  return CP.brand == "hyundai" and bool(CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG)
+
+
 class VisionLeadState:
   idle = 0
   intercepting = 1
@@ -93,9 +100,9 @@ class VisionLeadIntercept:
 
   @property
   def available(self) -> bool:
-    # Only with stock longitudinal and ICBM actually managing the set speed (pcmCruiseSpeed is
+    # Only on HKG HDA2, with stock longitudinal and ICBM actually managing the set speed (pcmCruiseSpeed is
     # cleared by ICBM init when the ICBM toggle is on and the platform supports it).
-    return not self.CP.openpilotLongitudinalControl and not self.CP_SP.pcmCruiseSpeed
+    return is_hkg_hda2(self.CP) and not self.CP.openpilotLongitudinalControl and not self.CP_SP.pcmCruiseSpeed
 
   @property
   def is_active(self) -> bool:
