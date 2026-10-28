@@ -10,6 +10,7 @@ from opendbc.car.hyundai.values import HyundaiFlags
 
 from openpilot.common.constants import CV
 from openpilot.common.realtime import DT_MDL
+from openpilot.common.test import OpenpilotTestCase
 from openpilot.selfdrive.car.cruise import V_CRUISE_UNSET
 from openpilot.sunnypilot.selfdrive.controls.lib.vision_lead_intercept import VisionLeadIntercept, VisionLeadState, ButtonType, \
                                                                              STOCK_TRACKING_DIST
@@ -30,7 +31,7 @@ def make_sm(lead_d=None, lead_v=0., lead_a=0., prob=0.9, v_cruise_stock=V_SET, s
   }
 
 
-class TestVisionLeadIntercept:
+class TestVisionLeadIntercept(OpenpilotTestCase):
   def setup_method(self):
     CP = SimpleNamespace(openpilotLongitudinalControl=False, brand="hyundai", flags=int(HyundaiFlags.CANFD_LKA_STEER_MSG))  # HDA2
     CP_SP = SimpleNamespace(pcmCruiseSpeed=False)  # ICBM active
