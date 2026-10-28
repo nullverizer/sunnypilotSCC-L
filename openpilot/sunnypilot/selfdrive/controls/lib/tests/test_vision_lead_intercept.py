@@ -39,9 +39,9 @@ class TestVisionLeadIntercept:
     self.vli.enabled = True
     self.vli.is_metric = False
 
-  def step(self, n=1, v_ego=V_SET, v_cruise=V_SET, long_enabled=True, **sm_kwargs):
+  def step(self, n=1, v_ego=V_SET, v_cruise=V_SET, long_enabled=True, override=False, **sm_kwargs):
     for _ in range(n):
-      self.vli.update(make_sm(**sm_kwargs), long_enabled, False, v_ego, v_cruise)
+      self.vli.update(make_sm(**sm_kwargs), long_enabled, override, v_ego, v_cruise)
 
   def stop_behind_lead(self):
     self.step(20, lead_d=120.)
@@ -163,3 +163,29 @@ class TestVisionLeadIntercept:
     assert not self.vli.is_active
     self.step(20, lead_d=120., v_ego=15., v_cruise_stock=V_SET)
     assert self.vli.state == VisionLeadState.intercepting
+
+  def test_gas_override_stands_down_then_restarts(self):
+    self.step(20, lead_d=120.)
+    assert self.vli.is_active
+    self.step(lead_d=110., override=True)
+    assert not self.vli.is_active
+    self.step(20, lead_d=100.)
+    assert self.vli.state == VisionLeadState.intercepting
+
+  def test_release_at_standstill_while_still_intercepting(self):
+    # Stock stopped the car before we ever reached the "holding" state
+    self.step(20, lead_d=120.)
+    assert self.vli.state == VisionLeadState.intercepting
+    self.step(lead_d=60., v_ego=0., standstill=True)
+    assert not self.vli.is_active
+
+  def test_close_lead_dropout_keeps_holding_longer(self):
+    self.step(20, lead_d=120.)
+    self.step(lead_d=30., v_cruise_stock=MIN_SET)
+    assert self.vli.state == VisionLeadState.holding
+    # Lead vanishes from the model right in front of us, car still rolling: keep holding for a good while
+    self.step(int(6. / DT_MDL), v_ego=3., v_cruise_stock=MIN_SET)
+    assert self.vli.state == VisionLeadState.holding
+    # ...but not forever
+    self.step(int(3. / DT_MDL), v_ego=3., v_cruise_stock=MIN_SET)
+    assert not self.vli.is_active
