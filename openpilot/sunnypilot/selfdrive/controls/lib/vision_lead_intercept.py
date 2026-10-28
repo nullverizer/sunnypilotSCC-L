@@ -20,6 +20,8 @@ What this does, in order:
      completely. The stock system holds the stop, and ICBM walks the set speed back up to the driver's last
      set speed, or to the speed limit when Speed Limit Assist is on (both already feed the planner's target).
 
+A nearly stopped lead the model is only ~50% sure about can also start this, but only after it persists 1.5 s.
+
 We also let go completely, without waiting for a stop, when: the lead pulls away (speeds up, or is above
 15 mph) or is lost, cruise is not
 engaged, the driver presses the gas, or the driver presses RES/+.
@@ -52,7 +54,12 @@ ButtonType = car.CarState.ButtonEvent.Type
 RAISE_BUTTONS = (ButtonType.accelCruise, ButtonType.resumeCruise)  # driver presses that cancel the intercept
 
 # What counts as a lead worth intercepting: a car we are confident about, that is slow or stopped.
-LEAD_PROB_MIN = 0.7                  # the model must be at least this sure the lead is real
+LEAD_PROB_MIN = 0.7                  # the model must be at least this sure the lead is real to start after a short look
+LEAD_PROB_WEAK = 0.5                 # a lead the model is only this sure about still counts as "there" (matches the on-screen
+                                     # chevron), and can start an intercept if it is nearly stopped and stays that way a while
+LEAD_V_WEAK_MAX = 2. * CV.MPH_TO_MS  # the weak-confidence path only accepts a lead that is essentially stopped
+LEAD_WEAK_TIME = 1.5                 # s, how long a weak-confidence stopped lead must persist before we believe it (longer
+                                     # than LEAD_DEBOUNCE_TIME, trading a bit of reaction time for extra range)
 LEAD_V_MAX = 12.5 * CV.MPH_TO_MS     # lead's own ground speed must be below this to start (stopped or crawling)
 LEAD_V_RELEASE = 15. * CV.MPH_TO_MS  # lead faster than this means it is driving away, so we give up (higher than
                                      # LEAD_V_MAX on purpose so a lead hovering near the limit does not flicker)
@@ -111,7 +118,8 @@ class VisionLeadIntercept:
     self._read_params()
 
     self.state = VisionLeadState.idle
-    self.lead_valid_timer = 0.   # how long the lead has qualified in a row
+    self.lead_valid_timer = 0.   # how long a confident lead has qualified in a row
+    self.lead_weak_timer = 0.    # how long a nearly stopped, moderately confident lead has qualified in a row
     self.lead_lost_timer = 0.    # how long there has been no usable lead in a row
     self.lead_depart_timer = 0.  # how long the lead has been clearly pulling away in a row
     self.lead_d_last = math.inf  # distance at which the lead was last seen (inf = no lead remembered)
@@ -167,17 +175,21 @@ class VisionLeadIntercept:
 
     # The primary vision lead: how sure the model is, how far away it is, and how fast it is really moving.
     lead = sm['modelV2'].leadsV3[0] if len(sm['modelV2'].leadsV3) else None
-    lead_present = lead is not None and len(lead.x) > 0 and lead.prob >= LEAD_PROB_MIN
+    lead_present = lead is not None and len(lead.x) > 0 and lead.prob >= LEAD_PROB_WEAK
+    lead_strong = lead_present and lead.prob >= LEAD_PROB_MIN
     lead_d = lead.x[0] if lead_present else 0.
     lead_v = lead.v[0] if lead_present else 0.
     lead_a = lead.a[0] if lead_present and len(lead.a) > 0 else 0.
 
-    # Step 3 - Is this lead worth intercepting? It must be slow or stopped, not pulling away, and still far enough
+    # Step 3 - Is this lead worth intercepting? (A lead at 50-70% confidence is "present" but only starts an intercept
+    # through the slower weak path below.) It must be slow or stopped, not pulling away, and still far enough
     # away that the stock system is probably ignoring it. It has to stay that way for a moment before we believe it.
     # "Pulling away" means it is already going faster than LEAD_V_RELEASE or it is speeding up hard.
     lead_pulling_away = lead_present and (lead_v > LEAD_V_RELEASE or lead_a > LEAD_A_RELEASE)
     lead_target = lead_present and lead_v < LEAD_V_MAX and lead_d > STOCK_TRACKING_DIST and not lead_pulling_away
-    self.lead_valid_timer = self.lead_valid_timer + DT_MDL if lead_target else 0.
+    self.lead_valid_timer = self.lead_valid_timer + DT_MDL if lead_target and lead_strong else 0.
+    # Weak path: a nearly stopped lead the model is only moderately sure about, which has to persist longer.
+    self.lead_weak_timer = self.lead_weak_timer + DT_MDL if lead_target and lead_v < LEAD_V_WEAK_MAX else 0.
     self.lead_lost_timer = 0. if lead_present else self.lead_lost_timer + DT_MDL
     self.lead_depart_timer = self.lead_depart_timer + DT_MDL if lead_pulling_away else 0.
 
@@ -202,7 +214,9 @@ class VisionLeadIntercept:
 
     # Step 6 - Could we start a new intercept right now? We need a qualifying lead, and the car and the set speed
     # both clearly above the minimum (otherwise there is nothing to gain).
-    can_intercept = (self.lead_valid_timer >= LEAD_DEBOUNCE_TIME and
+    # Either a confident lead seen for a moment, or a nearly stopped moderately-confident one seen for longer.
+    lead_believed = self.lead_valid_timer >= LEAD_DEBOUNCE_TIME or self.lead_weak_timer >= LEAD_WEAK_TIME
+    can_intercept = (lead_believed and
                      v_ego > min_set_speed + SPEED_MARGIN and v_cruise_stock > min_set_speed + SPEED_MARGIN)
 
     # Step 7 - Decide what to do, checking the reasons to stand down first.

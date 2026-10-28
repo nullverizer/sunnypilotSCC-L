@@ -220,3 +220,17 @@ class TestVisionLeadIntercept(OpenpilotTestCase):
     self.step(1, lead_d=120., lead_v=20., lead_a=3.)
     self.step(5, lead_d=120.)
     assert self.vli.is_active
+
+  def test_weak_stopped_lead_needs_longer(self):
+    self.step(int(1.0 / DT_MDL), lead_d=120., prob=0.55)
+    assert not self.vli.is_active
+    self.step(int(1.0 / DT_MDL), lead_d=120., prob=0.55)
+    assert self.vli.state == VisionLeadState.intercepting
+
+  def test_weak_moving_lead_does_not_start(self):
+    self.step(int(4. / DT_MDL), lead_d=120., lead_v=8 * CV.MPH_TO_MS, prob=0.55)
+    assert not self.vli.is_active
+
+  def test_very_weak_lead_never_starts(self):
+    self.step(int(4. / DT_MDL), lead_d=120., prob=0.4)
+    assert not self.vli.is_active
