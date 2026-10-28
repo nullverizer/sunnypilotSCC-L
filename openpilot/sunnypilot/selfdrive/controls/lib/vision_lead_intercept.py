@@ -20,7 +20,8 @@ What this does, in order:
      completely. The stock system holds the stop, and ICBM walks the set speed back up to the driver's last
      set speed, or to the speed limit when Speed Limit Assist is on (both already feed the planner's target).
 
-We also let go completely, without waiting for a stop, when: the lead drives away or is lost, cruise is not
+We also let go completely, without waiting for a stop, when: the lead pulls away (speeds up, or is above
+15 mph) or is lost, cruise is not
 engaged, the driver presses the gas, or the driver presses RES/+.
 
 States:
@@ -53,8 +54,11 @@ RAISE_BUTTONS = (ButtonType.accelCruise, ButtonType.resumeCruise)  # driver pres
 # What counts as a lead worth intercepting: a car we are confident about, that is slow or stopped.
 LEAD_PROB_MIN = 0.7                  # the model must be at least this sure the lead is real
 LEAD_V_MAX = 12.5 * CV.MPH_TO_MS     # lead's own ground speed must be below this to start (stopped or crawling)
-LEAD_V_RELEASE = 20. * CV.MPH_TO_MS  # lead faster than this means it is driving away, so we give up (higher than
+LEAD_V_RELEASE = 15. * CV.MPH_TO_MS  # lead faster than this means it is driving away, so we give up (higher than
                                      # LEAD_V_MAX on purpose so a lead hovering near the limit does not flicker)
+LEAD_A_RELEASE = 0.7                 # m/s^2, lead speeding up harder than this also means it is driving away, even while
+                                     # still slow, so we do not keep slowing down for something that is leaving
+LEAD_DEPART_TIME = 0.5               # s, the lead must keep pulling away this long before we give up (ignores noise)
 LEAD_DEBOUNCE_TIME = 0.5             # s, the lead must keep qualifying this long before we act (ignores blips)
 LEAD_LOST_TIME = 2.0                 # s, the lead must be missing this long before we treat it as gone
 LEAD_LOST_TIME_CLOSE = 8.0           # s, same, but when the lead was last seen close: the model often drops a lead that is
@@ -109,6 +113,7 @@ class VisionLeadIntercept:
     self.state = VisionLeadState.idle
     self.lead_valid_timer = 0.   # how long the lead has qualified in a row
     self.lead_lost_timer = 0.    # how long there has been no usable lead in a row
+    self.lead_depart_timer = 0.  # how long the lead has been clearly pulling away in a row
     self.lead_d_last = math.inf  # distance at which the lead was last seen (inf = no lead remembered)
     self.cancelled = False       # driver pressed RES/+: leave this lead alone until it is gone
 
@@ -165,21 +170,26 @@ class VisionLeadIntercept:
     lead_present = lead is not None and len(lead.x) > 0 and lead.prob >= LEAD_PROB_MIN
     lead_d = lead.x[0] if lead_present else 0.
     lead_v = lead.v[0] if lead_present else 0.
+    lead_a = lead.a[0] if lead_present and len(lead.a) > 0 else 0.
 
-    # Step 3 - Is this lead worth intercepting? It must be slow or stopped, and still far enough away that the
-    # stock system is probably ignoring it. It has to stay that way for a moment before we believe it.
-    lead_target = lead_present and lead_v < LEAD_V_MAX and lead_d > STOCK_TRACKING_DIST
+    # Step 3 - Is this lead worth intercepting? It must be slow or stopped, not pulling away, and still far enough
+    # away that the stock system is probably ignoring it. It has to stay that way for a moment before we believe it.
+    # "Pulling away" means it is already going faster than LEAD_V_RELEASE or it is speeding up hard.
+    lead_pulling_away = lead_present and (lead_v > LEAD_V_RELEASE or lead_a > LEAD_A_RELEASE)
+    lead_target = lead_present and lead_v < LEAD_V_MAX and lead_d > STOCK_TRACKING_DIST and not lead_pulling_away
     self.lead_valid_timer = self.lead_valid_timer + DT_MDL if lead_target else 0.
     self.lead_lost_timer = 0. if lead_present else self.lead_lost_timer + DT_MDL
+    self.lead_depart_timer = self.lead_depart_timer + DT_MDL if lead_pulling_away else 0.
 
-    # Step 4 - Has the lead gone? Yes if it is now driving away at real speed, or we have not seen it for a while.
+    # Step 4 - Has the lead gone? Yes if it has been clearly pulling away for a moment (so we stop slowing down for
+    # something that is leaving), or we have not seen it for a while.
     # "A while" is a couple of seconds, but much longer if we last saw it close, because a lead right in front of us
     # often drops out of the model's view and we must not hand the set speed back while still closing on it.
     # Once it is gone, forget the cancel and the remembered distance so the next lead gets a fresh start.
     if lead_present:
       self.lead_d_last = lead_d
     lost_limit = LEAD_LOST_TIME_CLOSE if self.lead_d_last <= STOCK_TRACKING_DIST else LEAD_LOST_TIME
-    lead_gone = self.lead_lost_timer > lost_limit or (lead_present and lead_v > LEAD_V_RELEASE)
+    lead_gone = self.lead_lost_timer > lost_limit or self.lead_depart_timer >= LEAD_DEPART_TIME
     if lead_gone:
       self.cancelled = False
       self.lead_d_last = math.inf

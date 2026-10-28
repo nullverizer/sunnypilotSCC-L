@@ -21,8 +21,8 @@ V_SET = 45 * CV.MPH_TO_MS
 RES_PRESS = [SimpleNamespace(type=ButtonType.accelCruise, pressed=True)]
 
 
-def make_sm(lead_d=None, lead_v=0., prob=0.9, v_cruise_stock=V_SET, standstill=False, buttons=()):
-  leads = [SimpleNamespace(prob=prob, x=[lead_d], v=[lead_v])] if lead_d is not None else []
+def make_sm(lead_d=None, lead_v=0., lead_a=0., prob=0.9, v_cruise_stock=V_SET, standstill=False, buttons=()):
+  leads = [SimpleNamespace(prob=prob, x=[lead_d], v=[lead_v], a=[lead_a])] if lead_d is not None else []
   return {
     'modelV2': SimpleNamespace(leadsV3=leads),
     'carState': SimpleNamespace(cruiseState=SimpleNamespace(speedCluster=v_cruise_stock), standstill=standstill,
@@ -111,7 +111,7 @@ class TestVisionLeadIntercept:
     assert abs(self.vli.output_v_target - MIN_SET) < 0.5
 
     # Lead drives away: fully release back to the driver's set speed
-    self.step(lead_d=30., lead_v=12., v_cruise_stock=MIN_SET)
+    self.step(15, lead_d=30., lead_v=12., v_cruise_stock=MIN_SET)
     assert self.vli.state == VisionLeadState.idle
     assert self.vli.output_v_target == V_CRUISE_UNSET
 
@@ -189,3 +189,33 @@ class TestVisionLeadIntercept:
     # ...but not forever
     self.step(int(3. / DT_MDL), v_ego=3., v_cruise_stock=MIN_SET)
     assert not self.vli.is_active
+
+  def test_lead_accelerating_from_stop_releases_and_does_not_restart(self):
+    self.step(20, lead_d=120.)
+    assert self.vli.is_active
+    # Stopped lead pulls away: still slow, but speeding up hard
+    for i in range(int(2. / DT_MDL)):
+      self.step(lead_d=120., lead_v=min(1. * i * DT_MDL, 4.), lead_a=1.2)
+      if not self.vli.is_active:
+        break
+    assert not self.vli.is_active
+    assert i * DT_MDL < 1.0  # released well before the lead is going fast
+    # ...and does not start a new intercept while the lead keeps accelerating
+    self.step(40, lead_d=120., lead_v=4., lead_a=1.2)
+    assert not self.vli.is_active
+
+  def test_lead_above_release_speed_releases(self):
+    self.step(20, lead_d=120.)
+    self.step(20, lead_d=120., lead_v=16 * CV.MPH_TO_MS)
+    assert not self.vli.is_active
+
+  def test_lead_between_start_and_release_speed_does_not_release(self):
+    self.step(20, lead_d=120.)
+    self.step(40, lead_d=120., lead_v=14 * CV.MPH_TO_MS)
+    assert self.vli.is_active
+
+  def test_single_noisy_lead_frame_does_not_release(self):
+    self.step(20, lead_d=120.)
+    self.step(1, lead_d=120., lead_v=20., lead_a=3.)
+    self.step(5, lead_d=120.)
+    assert self.vli.is_active
