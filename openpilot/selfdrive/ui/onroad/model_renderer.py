@@ -103,7 +103,9 @@ class ModelRenderer(Widget, ChevronMetrics, ModelRendererSP):
     model = sm['modelV2']
     radar_state = sm['radarState'] if sm.valid['radarState'] else None
     lead_one = radar_state.leadOne if radar_state else None
-    render_lead_indicator = self._longitudinal_control and radar_state is not None
+    # With stock longitudinal the lead is normally not drawn; show it while the ICBM vision lead intercept is reacting to it
+    vision_lead_intercept = sm['longitudinalPlanSP'].visionLeadIntercept.active
+    render_lead_indicator = (self._longitudinal_control or vision_lead_intercept) and radar_state is not None
 
     # Update model data when needed
     model_updated = sm.updated['modelV2']

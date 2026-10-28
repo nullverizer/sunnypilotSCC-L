@@ -122,6 +122,9 @@ class LongitudinalPlannerSP:
     assist.vTarget = float(self.sla.output_v_target)
     assist.aTarget = float(self.sla.output_a_target)
 
+    # Vision Lead Intercept
+    longitudinalPlanSP.visionLeadIntercept.active = self.vli.is_active
+
     # E2E Alerts
     e2eAlerts = longitudinalPlanSP.e2eAlerts
     e2eAlerts.greenLightAlert = self.e2e_alerts_helper.green_light_alert

@@ -206,6 +206,7 @@ struct LongitudinalPlanSP @0xf35cc4560bbf6ec2 {
   aTarget @5 :Float32;
   events @6 :List(OnroadEventSP.Event);
   e2eAlerts @7 :E2eAlerts;
+  visionLeadIntercept @8 :VisionLeadIntercept;
 
   deprecated :group {
     dec @0 :DynamicExperimentalControlDEPRECATED;
@@ -312,6 +313,11 @@ struct LongitudinalPlanSP @0xf35cc4560bbf6ec2 {
   struct E2eAlerts {
     greenLightAlert @0 :Bool;
     leadDepartAlert @1 :Bool;
+  }
+
+  # ICBM vision lead intercept: true while it is reacting to a slow/stopped lead (so the UI can show the lead).
+  struct VisionLeadIntercept {
+    active @0 :Bool;
   }
 }
 
